@@ -1,19 +1,26 @@
-package asundukov.multithreading.multithread.conveyor_queue;
+package asundukov.multithreading.multithread.conveyor_completable;
 
 import asundukov.multithreading.commons.GeneralException;
 import asundukov.multithreading.commons.WholeProcess;
 import asundukov.multithreading.commons.calculate.CalculateProcessor;
 import asundukov.multithreading.commons.calculate.CalculateService;
+import asundukov.multithreading.commons.download.DownloadData;
 import asundukov.multithreading.commons.download.DownloadProcessor;
 import asundukov.multithreading.commons.download.DownloadService;
 import asundukov.multithreading.commons.network.Network;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
 
-public class WholeProcessMultithreadedCallbackConveyorImpl implements WholeProcess {
+import static java.lang.Thread.sleep;
+
+public class WholeProcessMultithreadedCompletableFutureConveyorImpl implements WholeProcess {
     private static final int CONNECTIONS_COUNT = (int) Math.round(Network.TOTAL_SPEED / Network.MAX_SPEED_PER_CONNECTION);
     private static final int CPU_COUNT = Runtime.getRuntime().availableProcessors();
 
@@ -29,6 +36,8 @@ public class WholeProcessMultithreadedCallbackConveyorImpl implements WholeProce
 
     private int tasksAvailable = TASKS_AVAILABLE;
 
+    List<CompletableFuture> finalFutures = new ArrayList<>(tasksAvailable);
+
     @Override
     public long run() {
         System.out.println("Connection count: " + CONNECTIONS_COUNT);
@@ -40,34 +49,36 @@ public class WholeProcessMultithreadedCallbackConveyorImpl implements WholeProce
             tasksAvailable--;
             DownloadProcessor downloadProcessor = downloadService.createProcessor();
             DownloadTask downloadTask = new DownloadTask(downloadProcessor);
-            final LongAdder finalTotalAttempts = totalAttempts;
-            DownloadTaskCallbackProxy downloadTaskCallbackProxy = new DownloadTaskCallbackProxy(downloadTask, data -> {
-                CalculateProcessor calculateProcessor = calculateService.createProcessor(data);
-                CalculateTask calculateTask = new CalculateTask(calculateProcessor);
-                calculateExecutorService.submit(new CalculateTaskCallbackProxy(calculateTask, finalTotalAttempts::add));
-            });
-            downloadExecutorService.submit(downloadTaskCallbackProxy);
+
+            CompletableFuture<DownloadData> downloadResultFuture = CompletableFuture
+                    .supplyAsync(downloadTask::call, downloadExecutorService);
+            CompletableFuture<Long> calcResultFuture = downloadResultFuture
+                    .thenApplyAsync(data -> {
+                        CalculateProcessor calculateProcessor = calculateService.createProcessor(data);
+                        CalculateTask calculateTask = new CalculateTask(calculateProcessor);
+                        return calculateTask.call();
+                    }, calculateExecutorService);
+            calcResultFuture.thenAccept(totalAttempts::add);
+            finalFutures.add(calcResultFuture);
         }
 
-        boolean completed = awaitCompleting();
-
-        if (!completed) {
-            throw new GeneralException("Process stuck.");
-        }
+        awaitCompleting();
 
         return totalAttempts.longValue();
     }
 
-    private boolean awaitCompleting() {
-        try {
-            downloadExecutorService.shutdown();
-            boolean completed = downloadExecutorService.awaitTermination(1, TimeUnit.HOURS);
-            calculateExecutorService.shutdown();
-            return completed && calculateExecutorService.awaitTermination(1, TimeUnit.HOURS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GeneralException(e);
-        }
+    private void awaitCompleting() {
+        finalFutures.forEach(f -> {
+            try {
+                f.get();
+            } catch (InterruptedException | ExecutionException e) {
+                Thread.currentThread().interrupt();
+                throw new GeneralException(e);
+            }
+        });
+
+        downloadExecutorService.shutdown();
+        calculateExecutorService.shutdown();
     }
 
     private boolean isNextDownloadTaskAvailable() {

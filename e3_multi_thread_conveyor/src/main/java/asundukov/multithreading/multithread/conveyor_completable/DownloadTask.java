@@ -1,4 +1,4 @@
-package asundukov.multithreading.multithread.conveyor_queue;
+package asundukov.multithreading.multithread.conveyor_completable;
 
 import asundukov.multithreading.commons.download.DownloadData;
 import asundukov.multithreading.commons.download.DownloadProcessor;

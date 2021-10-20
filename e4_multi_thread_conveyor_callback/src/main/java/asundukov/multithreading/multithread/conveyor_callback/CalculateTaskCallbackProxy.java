@@ -1,4 +1,6 @@
-package asundukov.multithreading.multithread.conveyor_queue;
+package asundukov.multithreading.multithread.conveyor_callback;
+
+import asundukov.multithreading.multithread.conveyor_completable.CalculateTask;
 
 import java.util.concurrent.Callable;
 import java.util.function.Consumer;

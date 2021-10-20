@@ -4,4 +4,5 @@ include 'e1_single_thread'
 include 'e2_multi_thread'
 include 'e3_multi_thread_conveyor'
 include 'e4_multi_thread_conveyor_callback'
+include 'e5_multi_thread_conveyor_completablefuture'
 
